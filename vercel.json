@@ -1,15 +1,29 @@
 {
-  "version": 2,
-  "name": "valora-studio",
-  "cleanUrls": true,
-  "trailingSlash": false,
-  "routes": [
-    {
-      "handle": "filesystem"
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "services": {
+    "app": {
+      "root": ".",
+      "runtime": "python",
+      "bindings": [
+        {
+          "type": "service",
+          "service": "valoraa",
+          "format": "url",
+          "env": "VALORAA_URL"
+        }
+      ]
     },
+    "valoraa": {
+      "root": "ValoraA",
+      "framework": "fastapi"
+    }
+  },
+  "rewrites": [
     {
-      "src": "/(.*)",
-      "dest": "/index.html"
+      "source": "/(.*)",
+      "destination": {
+        "service": "app"
+      }
     }
   ]
 }

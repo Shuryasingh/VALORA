@@ -138,7 +138,7 @@
 
         try {
           // Attempt real API generation via FastAPI backend
-          let res = await fetch("/tts/generate", {
+          let res = await fetch("/api/tts/generate", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({

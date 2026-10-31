@@ -3230,7 +3230,7 @@
           pitch_semitones: 0.0
         };
 
-        const res = await fetch('/tts/generate', {
+        const res = await fetch('/api/tts/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -3716,7 +3716,7 @@
           formData.append('language', sttLangSelect.value);
         }
 
-        const res = await fetch('/stt/transcribe', {
+        const res = await fetch('/api/stt/transcribe', {
           method: 'POST',
           body: formData,
           signal: abortController.signal

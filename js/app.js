@@ -161,7 +161,8 @@ document.addEventListener("DOMContentLoaded", () => {
       headers["X-API-Key"] = state.apiKey;
     }
 
-    const res = await fetch(endpoint, { ...options, headers });
+    const normalizedEndpoint = endpoint.startsWith("/api") ? endpoint : `/api${endpoint.startsWith("/") ? endpoint : "/" + endpoint}`;
+    const res = await fetch(normalizedEndpoint, { ...options, headers });
     if (res.status === 429) {
       const errorData = await res.json().catch(() => ({}));
       const retryAfter = errorData.retry_after_seconds || parseInt(res.headers.get("Retry-After") || "60", 10);

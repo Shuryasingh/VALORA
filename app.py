@@ -444,6 +444,86 @@ def build_app():
     return demo
 
 
+# ==================================================================== #
+# Vercel Services Integration & Reverse Proxy Gateway
+# ==================================================================== #
+import urllib.request
+import urllib.error
+from pathlib import Path
+from fastapi import FastAPI, Request, Response
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+
+# Internal base URL for the 'valoraa' service injected by Vercel binding
+VALORAA_URL = os.environ.get("VALORAA_URL", "http://127.0.0.1:8000").rstrip("/")
+
+app = FastAPI(title="Valora App Service")
+
+_static_root = Path(__file__).resolve().parent
+if (_static_root / "css").exists():
+    app.mount("/css", StaticFiles(directory=str(_static_root / "css")), name="css")
+if (_static_root / "js").exists():
+    app.mount("/js", StaticFiles(directory=str(_static_root / "js")), name="js")
+if (_static_root / "assets").exists():
+    app.mount("/assets", StaticFiles(directory=str(_static_root / "assets")), name="assets")
+
+
+@app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
+async def proxy_to_valoraa(request: Request, path: str):
+    """
+    Forward API requests to the internal 'valoraa' service using the Vercel service binding URL.
+    """
+    target_url = f"{VALORAA_URL}/api/{path}"
+    if request.url.query:
+        target_url += f"?{request.url.query}"
+
+    body = await request.body()
+    headers = {k: v for k, v in request.headers.items() if k.lower() not in ("host", "content-length")}
+
+    try:
+        req = urllib.request.Request(
+            target_url,
+            data=body if body else None,
+            headers=headers,
+            method=request.method,
+        )
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            resp_body = resp.read()
+            resp_headers = dict(resp.headers)
+            return Response(
+                content=resp_body,
+                status_code=resp.status,
+                media_type=resp_headers.get("content-type"),
+            )
+    except urllib.error.HTTPError as e:
+        err_body = e.read()
+        return Response(
+            content=err_body,
+            status_code=e.code,
+            media_type=e.headers.get("content-type", "application/json"),
+        )
+    except Exception as e:
+        return JSONResponse(
+            status_code=502,
+            content={"error": "bad_gateway", "detail": f"Failed to reach backend service: {str(e)}"},
+        )
+
+
+@app.get("/{full_path:path}")
+async def serve_frontend(full_path: str):
+    """
+    Serve frontend index.html and static assets.
+    """
+    file_candidate = _static_root / full_path
+    if full_path and file_candidate.exists() and file_candidate.is_file():
+        return FileResponse(file_candidate)
+
+    index_file = _static_root / "index.html"
+    if index_file.exists():
+        return FileResponse(index_file)
+    return {"status": "ok", "service": "app"}
+
+
 if __name__ == "__main__":
     print("=" * 70, flush=True)
     print("Starting AI4Bharat Indic-Parler-TTS Application...", flush=True)
