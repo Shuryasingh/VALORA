@@ -956,7 +956,69 @@
     initSectionReveals();
     initMarqueeInteractions();
     loadVoicePresets(); // Fetch all backend voices asynchronously
+    checkBackendStatus(); // Check live backend connection and annotate features
   });
+
+  async function checkBackendStatus() {
+    const statusPill = document.getElementById('studio-pipeline-status');
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2000);
+
+    try {
+      const res = await fetch('/api/status', { signal: controller.signal }).catch(() => null);
+      clearTimeout(timeoutId);
+
+      state.backendOnline = !!(res && res.ok);
+
+      if (statusPill) {
+        if (state.backendOnline) {
+          statusPill.innerHTML = '<span class="pulse-dot"></span> Backend Connected';
+          statusPill.classList.remove('offline');
+          statusPill.classList.add('online');
+          statusPill.title = "Connected to Valora AI Backend Service";
+        } else {
+          statusPill.innerHTML = '<span class="pulse-dot offline"></span> Preview Mode (Offline)';
+          statusPill.classList.remove('online');
+          statusPill.classList.add('offline');
+          statusPill.title = "Backend service not detected. Running in client-side preview mode. Start backend with 'python run.py --server'.";
+        }
+      }
+
+      identifyBackendFeatures();
+    } catch {
+      clearTimeout(timeoutId);
+      state.backendOnline = false;
+      if (statusPill) {
+        statusPill.innerHTML = '<span class="pulse-dot offline"></span> Preview Mode (Offline)';
+        statusPill.classList.remove('online');
+        statusPill.classList.add('offline');
+        statusPill.title = "Backend service not detected. Running in client-side preview mode.";
+      }
+      identifyBackendFeatures();
+    }
+  }
+
+  function identifyBackendFeatures() {
+    const backendActions = [
+      { id: 'btn-generate-tts', label: 'Requires FastAPI Backend' },
+      { id: 'btn-clone-voice', label: 'Requires XTTS Backend' },
+      { id: 'btn-transcribe-stt', label: 'Requires Whisper Backend' },
+      { id: 'btn-enhance-audio', label: 'Requires Audio DSP Backend' },
+      { id: 'indic-generate-btn', label: 'Requires Parler-TTS Backend' },
+      { id: 'btn-assemble-story', label: 'Requires Story Studio Backend' },
+      { id: 'btn-translate-action', label: 'Requires Translation API' }
+    ];
+
+    backendActions.forEach(({ id, label }) => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.setAttribute('data-backend-required', 'true');
+        if (!el.title) {
+          el.title = `${label} (${state.backendOnline ? 'Online' : 'Offline / Preview Mode'})`;
+        }
+      }
+    });
+  }
 
   // =========================================================================
   // 4. AUTHENTICATION SESSION MANAGEMENT
@@ -3230,7 +3292,7 @@
           pitch_semitones: 0.0
         };
 
-        const res = await fetch('/tts/generate', {
+        const res = await fetch('/api/tts/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -3716,7 +3778,7 @@
           formData.append('language', sttLangSelect.value);
         }
 
-        const res = await fetch('/stt/transcribe', {
+        const res = await fetch('/api/stt/transcribe', {
           method: 'POST',
           body: formData,
           signal: abortController.signal
@@ -6586,6 +6648,35 @@
     let mouseX = -100, mouseY = -100;
     let cursorX = -100, cursorY = -100;
     let isInside = false;
+    let isRunning = false;
+
+    function renderCursor() {
+      if (isTouchOrReduced()) {
+        cursor.style.display = 'none';
+        isRunning = false;
+        return;
+      }
+
+      const dx = mouseX - cursorX;
+      const dy = mouseY - cursorY;
+      cursorX += dx * 0.25;
+      cursorY += dy * 0.25;
+      cursor.style.transform = `translate3d(${cursorX}px, ${cursorY}px, 0) translate(-50%, -50%)`;
+
+      // Sleep when at rest to preserve battery and 0% CPU idle
+      if (Math.abs(dx) > 0.2 || Math.abs(dy) > 0.2) {
+        requestAnimationFrame(renderCursor);
+      } else {
+        isRunning = false;
+      }
+    }
+
+    function wakeCursor() {
+      if (!isRunning && isInside) {
+        isRunning = true;
+        requestAnimationFrame(renderCursor);
+      }
+    }
 
     window.addEventListener('mousemove', (e) => {
       mouseX = e.clientX;
@@ -6594,6 +6685,7 @@
         isInside = true;
         cursor.classList.remove('cursor-hidden');
       }
+      wakeCursor();
     }, { passive: true });
 
     document.addEventListener('mouseleave', () => {
@@ -6602,12 +6694,16 @@
     });
 
     document.addEventListener('mouseenter', () => {
+      isInside = true;
       cursor.classList.remove('cursor-hidden');
+      wakeCursor();
     });
 
     document.addEventListener('mouseover', (e) => {
-      // Native text entry and text selection: hide cursor over inputs and textareas
-      const isTextInput = e.target.closest('input, textarea, [contenteditable="true"]');
+      const target = e.target;
+      if (!target || !target.closest) return;
+
+      const isTextInput = target.closest('input, textarea, [contenteditable="true"]');
       if (isTextInput) {
         cursor.classList.add('cursor-hidden');
         cursor.classList.remove('active-hover');
@@ -6615,25 +6711,13 @@
       }
       cursor.classList.remove('cursor-hidden');
 
-      const interactive = e.target.closest('a, button, select, [role="button"], .neo-voice-card, .voice-card, .bento-card, .hero-play-circle-btn, .carousel-arrow-btn, .faq-neo-trigger, .cat-pill');
+      const interactive = target.closest('a, button, select, [role="button"], .neo-voice-card, .voice-card, .bento-card, .hero-play-circle-btn, .carousel-arrow-btn, .faq-neo-trigger, .cat-pill');
       if (interactive) {
         cursor.classList.add('active-hover');
       } else {
         cursor.classList.remove('active-hover');
       }
-    });
-
-    function renderCursor() {
-      if (isTouchOrReduced()) {
-        cursor.style.display = 'none';
-        return;
-      }
-      cursorX += (mouseX - cursorX) * 0.22;
-      cursorY += (mouseY - cursorY) * 0.22;
-      cursor.style.transform = `translate3d(${cursorX}px, ${cursorY}px, 0) translate(-50%, -50%)`;
-      requestAnimationFrame(renderCursor);
-    }
-    requestAnimationFrame(renderCursor);
+    }, { passive: true });
   }
 
   function initSectionReveals() {
